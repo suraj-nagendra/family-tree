@@ -1,0 +1,1441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Family Tree v2.0.0</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600&family=Jost:wght@300;400;500&display=swap');
+:root{
+  --bg:#0e0c0a;--surf:#1a1612;--surf2:#221e19;
+  --gold:#c9a84c;--goldL:#e8c97a;--goldD:#7a6430;
+  --maleL:#5b9fc8;--maleG:rgba(58,124,165,.22);
+  --femL:#c97090;--femG:rgba(160,82,106,.22);
+  --txt:#e8dcc8;--txtD:#8a7d6a;
+  --cp:#4a9edd;--cs:#e8607a;--cb:#52b06a;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+html,body{height:100%;overflow:hidden}
+body{background:var(--bg);font-family:'Jost',sans-serif;color:var(--txt);touch-action:none;user-select:none;-webkit-user-select:none}
+
+#cv{position:fixed;inset:0;top:54px;overflow:hidden}
+svg#ln{position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;z-index:8}
+svg#ln rect,svg#ln text{pointer-events:none}
+#nc{position:absolute;top:0;left:0;width:0;height:0;overflow:visible;z-index:10}
+
+/* NODES — no transform:scale (that breaks hit testing for ✕).
+   We scale by adjusting pixel dimensions directly. */
+.node{
+  position:absolute;width:148px;
+  border-radius:13px;padding:12px 12px 20px;
+  cursor:grab;touch-action:none;z-index:10;
+  overflow:visible;  /* allows ✕ to hang outside */
+  transition:box-shadow .18s;
+  aspect-ratio:148/86; /* keeps node landscape at every zoom level */
+}
+.node.male{background:linear-gradient(145deg,#1c2d3a,#152533);border:1px solid rgba(91,159,200,.35);box-shadow:0 4px 18px var(--maleG)}
+.node.female{background:linear-gradient(145deg,#2e1b22,#251520);border:1px solid rgba(201,112,144,.35);box-shadow:0 4px 18px var(--femG)}
+.node.male:hover{box-shadow:0 6px 26px var(--maleG),0 0 0 1px rgba(91,159,200,.45)}
+.node.female:hover{box-shadow:0 6px 26px var(--femG),0 0 0 1px rgba(201,112,144,.45)}
+.node.csrc{box-shadow:0 0 0 2px var(--gold),0 0 22px var(--goldD)!important;z-index:30}
+.node.ctgt:hover{box-shadow:0 0 0 2px var(--goldL),0 0 18px rgba(232,201,122,.3)!important}
+
+.ndot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-bottom:6px}
+.male .ndot{background:var(--maleL);box-shadow:0 0 5px rgba(91,159,200,.6)}
+.female .ndot{background:var(--femL);box-shadow:0 0 5px rgba(201,112,144,.6)}
+.nname{font-family:'Cormorant Garamond',serif;font-size:15px;font-weight:600;line-height:1.2;color:var(--txt);margin-bottom:2px;word-break:break-word}
+.nbirth{font-size:10px;color:var(--txtD);letter-spacing:.04em}
+.nnote{font-size:10px;color:var(--txtD);margin-top:3px;font-style:italic;word-break:break-word;opacity:.8;white-space:pre-line}
+
+/* ✕ DELETE BUTTON
+   KEY: position:absolute outside node box; pointer-events:all; z-index very high.
+   On touch screens: always visible (opacity:1), larger hit area. */
+.ndel{
+  position:absolute;top:-12px;right:-12px;
+  width:26px;height:26px;border-radius:50%;
+  background:#3a1010;border:1.5px solid #8a2020;color:#ff8888;
+  font-size:12px;line-height:1;
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  pointer-events:all;
+  z-index:200;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:rgba(255,100,100,.2);
+  opacity:0;transition:opacity .15s;
+}
+.node:hover .ndel{opacity:1}
+/* On true touch screens, always show and make larger */
+@media(hover:none){
+  .ndel{opacity:1!important;width:32px;height:32px;top:-14px;right:-14px;font-size:14px;border-width:2px}
+}
+
+/* PORT */
+.nport{
+  position:absolute;bottom:-13px;left:50%;transform:translateX(-50%);
+  width:22px;height:22px;border-radius:50%;border:2px solid;background:var(--bg);
+  cursor:crosshair;opacity:0;z-index:20;
+  display:flex;align-items:center;justify-content:center;
+  touch-action:manipulation;pointer-events:all;
+  transition:opacity .15s;
+}
+.nport::after{content:'';width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.75}
+.node:hover .nport{opacity:1}
+@media(hover:none){.nport{opacity:.85;width:28px;height:28px;bottom:-16px}}
+.male .nport{border-color:var(--maleL);color:var(--maleL)}
+.female .nport{border-color:var(--femL);color:var(--femL)}
+
+/* EDGES */
+.rline{fill:none;cursor:pointer;pointer-events:all}
+.rline.parent{stroke:var(--cp);stroke-width:2.5}
+.rline.spouse{stroke:var(--cs);stroke-width:2.5}
+.rline.sibling{stroke:var(--cb);stroke-width:1.5;stroke-dasharray:6,4}
+.rhit{stroke:transparent;stroke-width:30;fill:none;cursor:pointer;pointer-events:all}
+.elbl{font-family:'Jost',sans-serif;font-size:10px;fill:var(--txtD);text-anchor:middle;dominant-baseline:middle;letter-spacing:.07em;pointer-events:none}
+#tl{stroke:var(--goldL);stroke-width:1.5;stroke-dasharray:7,4;fill:none;opacity:.8;pointer-events:none}
+
+/* TOPBAR */
+#tb{position:fixed;top:0;left:0;right:0;height:54px;background:rgba(14,12,10,.95);backdrop-filter:blur(14px);border-bottom:1px solid rgba(201,168,76,.12);display:flex;align-items:center;padding:0 12px;gap:8px;z-index:400}
+#ta{flex:1;display:flex;align-items:center;gap:6px;min-width:0;cursor:pointer;overflow:hidden}
+#tt{font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:300;letter-spacing:.07em;color:var(--goldL);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#th{font-size:10px;color:var(--txtD);white-space:nowrap;font-style:italic;flex-shrink:0}
+#ti{font-family:'Cormorant Garamond',serif;font-size:19px;font-weight:300;color:var(--goldL);background:transparent;border:none;border-bottom:1px solid var(--goldD);outline:none;flex:1;min-width:40px;display:none;-webkit-appearance:none}
+.btn{padding:7px 12px;border-radius:8px;border:none;cursor:pointer;font-family:'Jost',sans-serif;font-size:12px;font-weight:500;letter-spacing:.05em;text-transform:uppercase;transition:all .15s;white-space:nowrap;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.bg{background:var(--gold);color:#0e0c0a}.bg:hover,.bg:active{background:var(--goldL)}
+.bo{background:transparent;color:var(--txtD);border:1px solid rgba(255,255,255,.1)}.bo:hover,.bo:active{border-color:var(--goldD);color:var(--gold)}
+.br{background:transparent;color:#e07070;border:1px solid rgba(220,80,80,.25)}.br:hover,.br:active{border-color:#e07070;background:rgba(220,80,80,.1)}
+
+/* SIDE CONTROLS */
+#sc{position:fixed;right:12px;bottom:80px;display:flex;flex-direction:column;gap:7px;z-index:100}
+.sb{width:42px;height:42px;border-radius:10px;background:var(--surf2);border:1px solid rgba(255,255,255,.07);color:var(--txtD);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.sb:hover,.sb:active{background:var(--surf);color:var(--gold);border-color:var(--goldD)}
+.sb.red{color:#e07070}.sb.red:hover,.sb.red:active{color:#ff9090;border-color:#7a2020;background:rgba(100,20,20,.3)}
+.sb svg{width:18px;height:18px;fill:currentColor}
+
+/* LEGEND */
+#leg{position:fixed;bottom:14px;left:13px;background:rgba(22,18,14,.95);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.06);border-radius:11px;padding:9px 13px;z-index:100;font-size:11px;color:var(--txtD);letter-spacing:.05em}
+.lr{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+.lr:last-child{margin-bottom:0}
+
+/* STATUS + HINT */
+#stbar{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(26,22,18,.97);backdrop-filter:blur(8px);border:1px solid rgba(201,168,76,.18);border-radius:20px;padding:8px 18px;font-size:12px;color:var(--txtD);z-index:150;letter-spacing:.05em;pointer-events:none;transition:opacity .35s;white-space:nowrap;max-width:80vw;text-align:center}
+#stbar.h{opacity:0}
+#hb{position:fixed;top:64px;left:50%;transform:translateX(-50%);background:rgba(201,168,76,.13);border:1px solid rgba(201,168,76,.3);border-radius:20px;padding:7px 16px;font-size:12px;color:var(--goldL);z-index:160;pointer-events:none;transition:opacity .25s;white-space:nowrap;max-width:80vw;text-align:center}
+#hb.h{opacity:0}
+
+/* ── RESPONSIVE ── */
+/* Tablet / small desktop */
+@media(max-width:700px){
+  .btn{padding:7px 9px;font-size:11px}
+  #tb{gap:5px;padding:0 8px}
+}
+/* Phone landscape / small */
+@media(max-width:480px){
+  /* Legend: shrink but keep visible — needed for capture too */
+  #leg{font-size:9px;padding:6px 9px;bottom:8px;left:8px}
+  #th{display:none}
+  /* Collapse capture to icon-only on narrow */
+  #capbtn .cap-lbl{display:none}
+  #capbtn{padding:7px 9px;min-width:0}
+  .btn{padding:7px 8px;font-size:11px}
+  #tb{gap:4px;padding:0 6px}
+  /* Modals full width on phone */
+  .mo{padding:18px 16px;border-radius:14px}
+  /* Side controls smaller on phone */
+  .sb{width:38px;height:38px;font-size:16px}
+  #sc{right:8px;bottom:70px;gap:6px}
+}
+/* Very small (320px) */
+@media(max-width:360px){
+  .btn{padding:6px 7px;font-size:10px}
+  #tt{font-size:16px}
+}
+
+/* STATUS + HINT */
+#stbar{position:fixed;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(26,22,18,.97);backdrop-filter:blur(8px);border:1px solid rgba(201,168,76,.18);border-radius:20px;padding:8px 18px;font-size:12px;color:var(--txtD);z-index:150;letter-spacing:.05em;pointer-events:none;transition:opacity .35s;white-space:nowrap;max-width:90vw;text-align:center}
+#stbar.h{opacity:0}
+#hb{position:fixed;top:64px;left:50%;transform:translateX(-50%);background:rgba(201,168,76,.13);border:1px solid rgba(201,168,76,.3);border-radius:20px;padding:7px 16px;font-size:12px;color:var(--goldL);z-index:160;pointer-events:none;transition:opacity .25s;white-space:nowrap;max-width:88vw;text-align:center}
+#hb.h{opacity:0}
+
+/* MODALS */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.76);backdrop-filter:blur(5px);z-index:500;display:flex;align-items:center;justify-content:center;padding:16px}
+.ov.h{display:none}
+.mo{background:var(--surf);border:1px solid rgba(201,168,76,.2);border-radius:17px;padding:22px;width:100%;max-width:340px;box-shadow:0 24px 80px rgba(0,0,0,.7)}
+.mo h2{font-family:'Cormorant Garamond',serif;font-size:21px;font-weight:600;color:var(--goldL);margin-bottom:3px}
+.sub{font-size:12px;color:var(--txtD);margin-bottom:18px;letter-spacing:.03em}
+.fg{margin-bottom:13px}
+.fl{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.09em;color:var(--txtD);margin-bottom:5px}
+.fi{width:100%;background:var(--bg);border:1px solid rgba(255,255,255,.08);border-radius:8px;padding:10px 11px;color:var(--txt);font-family:'Jost',sans-serif;font-size:14px;outline:none;transition:border-color .15s;-webkit-appearance:none;appearance:none}
+.fi:focus{border-color:var(--goldD)}
+.fi.err{border-color:#c04040!important}
+.fi::placeholder{color:var(--txtD);opacity:.38}
+.ferr{font-size:11px;color:#e07070;margin-top:4px;display:none}
+.ferr.v{display:block}
+.gtog{display:flex;gap:7px}
+.go{flex:1;padding:9px;border-radius:8px;border:1px solid rgba(255,255,255,.08);background:var(--bg);color:var(--txtD);cursor:pointer;font-family:'Jost',sans-serif;font-size:13px;text-align:center;transition:all .15s;touch-action:manipulation}
+.go.gm{background:rgba(58,124,165,.2);border-color:var(--maleL);color:var(--maleL)}
+.go.gf{background:rgba(160,82,106,.2);border-color:var(--femL);color:var(--femL)}
+.ma{display:flex;gap:9px;margin-top:18px}
+.ma .btn{flex:1;padding:11px;font-size:13px}
+.ro{display:flex;align-items:center;gap:11px;padding:11px 13px;border-radius:10px;border:1px solid rgba(255,255,255,.06);background:var(--bg);cursor:pointer;margin-bottom:7px;transition:all .15s;touch-action:manipulation}
+.ro:last-child{margin-bottom:0}
+.ro:hover,.ro:active{border-color:var(--goldD);background:rgba(201,168,76,.05)}
+.ro.sel{border-color:var(--gold);background:rgba(201,168,76,.1)}
+.rd{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.rlb2{font-size:14px;color:var(--txt)}
+.rsb2{font-size:11px;color:var(--txtD);margin-top:1px}
+
+/* Long-press feedback ring */
+@keyframes lpulse{0%{box-shadow:0 0 0 0 rgba(201,168,76,.7)}70%{box-shadow:0 0 0 14px rgba(201,168,76,0)}100%{box-shadow:0 0 0 0 rgba(201,168,76,0)}}
+.lpulse{animation:lpulse .42s ease-out}
+#detbar{position:fixed;bottom:60px;left:50%;transform:translateX(-50%);background:rgba(55,10,10,.97);backdrop-filter:blur(8px);border:1px solid #7a3030;border-radius:13px;padding:10px 14px;z-index:300;display:flex;align-items:center;gap:10px;font-size:13px;color:#ffaaaa;white-space:nowrap;max-width:92vw}
+#detbar.h{display:none}
+#detbar button{border:none;border-radius:7px;padding:7px 13px;font-size:12px;cursor:pointer;font-family:'Jost',sans-serif;touch-action:manipulation}
+#det-ok{background:#7a1e1e;color:#ffcccc}
+#det-no{background:transparent;color:var(--txtD)}
+
+/* CUSTOM CONFIRM DIALOG — replaces window.confirm (blocked on mobile) */
+#cfdlg{position:fixed;inset:0;background:rgba(0,0,0,.78);backdrop-filter:blur(5px);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px}
+#cfdlg.h{display:none}
+#cfdlg .mo p{font-size:14px;color:var(--txt);line-height:1.55;margin-bottom:0}
+</style>
+</head>
+<body>
+
+<div id="tb">
+  <div id="ta" onclick="titleClick()">
+    <span id="tt">Family Tree</span>
+    <span id="th" style="font-size:11px;opacity:.5">✎</span>
+    <input id="ti" autocomplete="off" autocorrect="off" spellcheck="false"
+      onblur="commitTitle()"
+      onkeydown="if(event.key==='Enter'||event.key==='Escape')this.blur()"/>
+  </div>
+  <button class="btn bg" onclick="openAdd()">+ Add</button>
+  <button class="btn bo" onclick="captureTree()" id="capbtn" style="display:inline-flex;align-items:center;gap:5px"><span style="font-size:14px;line-height:1;position:relative;top:-1px">📸</span><span class="cap-lbl">Capture</span></button>
+  <button class="btn bo" onclick="saveFile()">💾 Save</button>
+</div>
+
+<div id="hb" class="h"></div>
+
+<div id="cv">
+  <svg id="ln">
+  <g id="lg"></g>
+  <path id="tl" d="" visibility="hidden"/>
+</svg>
+  <div id="nc"></div>
+</div>
+
+<div id="sc">
+  <button class="sb" onclick="zoomBy(1.15)" title="Zoom in">+</button>
+  <button class="sb" onclick="zoomBy(.87)" title="Zoom out">−</button>
+  <button class="sb" onclick="fitView()" title="Fit view">⊡</button>
+  <button class="sb" onclick="autoLayout()" title="Auto-arrange">⟳</button>
+  <button class="sb red" onclick="askClear()" title="Clear all">
+    <svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+      <rect x="3" y="5" width="14" height="1.5" rx=".75"/>
+      <rect x="7.5" y="2.5" width="5" height="1.5" rx=".75"/>
+      <path d="M5 7l.9 10.1A1 1 0 006.9 18h6.2a1 1 0 001-.9L15 7H5zm3.5 2v6m3-6v6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" fill="none"/>
+    </svg>
+  </button>
+</div>
+
+<!-- Legend: Parent-Child first, Spouse second -->
+<div id="leg">
+  <div class="lr">
+    <span style="display:inline-block;width:24px;height:2.5px;background:var(--cp);border-radius:1px;flex-shrink:0"></span>
+    Father / Mother → Child
+  </div>
+  <div class="lr">
+    <span style="display:inline-block;width:24px;height:2.5px;background:var(--cs);border-radius:1px;flex-shrink:0"></span>
+    Spouse
+  </div>
+  <div class="lr">
+    <svg width="24" height="6" style="flex-shrink:0;overflow:visible" viewBox="0 0 24 6"><line x1="0" y1="3" x2="24" y2="3" stroke="#52b06a" stroke-width="1.5" stroke-dasharray="6,4"/></svg>
+    Sibling
+  </div>
+</div>
+
+<div id="stbar" class="h"></div>
+
+<div id="detbar" class="h">
+  <span id="det-lbl">Remove relation?</span>
+  <button id="det-ok" onclick="doDelEdge()">Remove</button>
+  <button id="det-no" onclick="hideDetBar()">Cancel</button>
+</div>
+
+<!-- Custom confirm dialog (no window.confirm — blocked on mobile) -->
+<div id="cfdlg" class="h">
+  <div class="mo" style="max-width:300px">
+    <h2 id="cf-h">Confirm</h2>
+    <p class="sub" id="cf-msg" style="margin-bottom:18px"></p>
+    <div class="ma">
+      <button class="btn bo" onclick="cfAns(false)">Cancel</button>
+      <button class="btn br" onclick="cfAns(true)">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Person modal -->
+<div class="ov h" id="pm">
+  <div class="mo">
+    <h2 id="pm-h">Add Person</h2>
+    <p class="sub" id="pm-s">Name and gender are required</p>
+    <div class="fg">
+      <label class="fl">Full Name *</label>
+      <input class="fi" id="pn" placeholder="e.g. Maria Joseph" autocomplete="off" autocorrect="off" autocapitalize="words"/>
+      <div class="ferr" id="pn-e"></div>
+    </div>
+    <div class="fg">
+      <label class="fl">Gender *</label>
+      <div class="gtog">
+        <div class="go gm" id="gm" onclick="setG('male')">♂ Male</div>
+        <div class="go"    id="gf" onclick="setG('female')">♀ Female</div>
+      </div>
+    </div>
+    <div class="fg">
+      <label class="fl">Birth Year <span style="opacity:.45;font-size:10px">(optional)</span></label>
+      <input class="fi" id="pb" type="text" inputmode="numeric" placeholder="e.g. 1952" autocomplete="off" maxlength="4"/>
+      <div class="ferr" id="pb-e"></div>
+    </div>
+    <div class="fg">
+      <label class="fl">Note <span style="opacity:.45;font-size:10px">(optional)</span></label>
+      <textarea class="fi" id="pno" placeholder="Occupation, city, any detail…" autocomplete="off" rows="3" style="resize:vertical;min-height:64px;line-height:1.5"></textarea>
+    </div>
+    <div class="ma">
+      <button class="btn bo" onclick="closeM('pm')">Cancel</button>
+      <button class="btn bg" id="ps-btn" onclick="savePerson()">Add</button>
+    </div>
+  </div>
+</div>
+
+<!-- Relation modal -->
+<div class="ov h" id="rm">
+  <div class="mo">
+    <h2>Connect</h2>
+    <p class="sub" id="rm-s">Choose relationship type</p>
+    <div id="ropts">
+      <div class="ro sel" data-t="parent" onclick="pickR(this)">
+        <div class="rd" style="background:var(--cp)"></div>
+        <div>
+          <div class="rlb2" id="ro-plbl">Parent → Child</div>
+          <div class="rsb2">First person is parent of second</div>
+        </div>
+      </div>
+      <div class="ro" data-t="spouse" onclick="pickR(this)">
+        <div class="rd" style="background:var(--cs)"></div>
+        <div>
+          <div class="rlb2">Spouse</div>
+          <div class="rsb2">Partners</div>
+        </div>
+      </div>
+      <div class="ro" data-t="sibling" onclick="pickR(this)">
+        <div class="rd" style="background:var(--cb)"></div>
+        <div>
+          <div class="rlb2">Sibling</div>
+          <div class="rsb2">Brothers or Sisters</div>
+        </div>
+      </div>
+    </div>
+    <div class="ma">
+      <button class="btn bo" onclick="cancelConn()">Cancel</button>
+      <button class="btn bg" onclick="confirmConn()">Connect</button>
+    </div>
+    <div id="rm-err" style="display:none;margin-top:12px;padding:9px 12px;background:rgba(200,60,60,.12);border:1px solid rgba(200,60,60,.3);border-radius:8px;font-size:12px;color:#e07070;text-align:center"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════ STATE ══════════════════════════ */
+const VERSION="2.0.0";
+const EMBEDDED_DATA = null; // __DATA__
+let S={title:'Family Tree',nodes:[],edges:[],nid:1};
+
+function sanitise(r){
+  if(!r||typeof r!=='object') return;
+  if(typeof r.title==='string') S.title=r.title.slice(0,120).replace(/[<>"]/g,'');
+  if(typeof r.nid==='number')   S.nid=Math.max(1,r.nid|0);
+  const vt=new Set(['parent','spouse','sibling']);
+  if(Array.isArray(r.nodes))
+    S.nodes=r.nodes.filter(n=>n&&typeof n==='object').map(n=>({
+      id:(n.id|0)||0,
+      name:typeof n.name==='string'?n.name.slice(0,80).replace(/[<>"]/g,''):'?',
+      gender:n.gender==='female'?'female':'male',
+      birth:typeof n.birth==='string'?n.birth.slice(0,4):'',
+      note:typeof n.note==='string'?n.note.slice(0,400).replace(/[<>"]/g,''):'',
+      x:+n.x||0,y:+n.y||0
+    })).filter(n=>n.id>0);
+  if(Array.isArray(r.edges))
+    S.edges=r.edges.filter(e=>e&&typeof e==='object').map(e=>({
+      id:(e.id|0)||0,from:(e.from|0)||0,to:(e.to|0)||0,
+      type:vt.has(e.type)?e.type:'parent'
+    })).filter(e=>e.id>0&&e.from>0&&e.to>0&&e.from!==e.to);
+}
+
+/* ═══════════════════════════ CONFIRM ═══════════════════════ */
+// window.confirm() is silently blocked in many mobile browsers.
+// We use a custom modal instead.
+let _cfCb=null;
+function customConfirm(title,msg,cb){
+  _cfCb=cb;
+  document.getElementById('cf-h').textContent=title;
+  document.getElementById('cf-msg').textContent=msg;
+  document.getElementById('cfdlg').classList.remove('h');
+}
+function cfAns(yes){
+  document.getElementById('cfdlg').classList.add('h');
+  const cb=_cfCb; _cfCb=null; if(cb) cb(yes);
+}
+
+/* ═══════════════════════════ VIEW ══════════════════════════ */
+let vx=0,vy=0,vs=1;
+const NW=148,NH=86;
+const sx=n=>n.x*vs+vx, sy=n=>n.y*vs+vy;
+const scx=n=>sx(n)+NW*vs/2;
+
+function applyView(){
+  S.nodes.forEach(n=>{
+    const el=document.querySelector(`.node[data-id="${n.id}"]`);
+    if(el) placeNode(el,n);
+  });
+  renderEdges();
+}
+
+/* ═══════════════════════════ NODES ════════════════════════
+   CRITICAL: We do NOT use transform:scale() on the node div.
+   That trick makes the visual size != DOM bounding box, so
+   pointer events for the ✕ button land in wrong place.
+   Instead we scale by changing width + font-size directly.   */
+function placeNode(el,n){
+  el.style.left=sx(n)+'px';
+  el.style.top =sy(n)+'px';
+  el.style.width=Math.round(NW*vs)+'px';
+  el.style.height=Math.round(NH*vs)+'px';
+  // overflow:hidden only on the node box itself so content never spills out.
+  // ✕ and port use position:absolute and are children of the node — they
+  // are clipped by this, BUT they use negative top/bottom so they sit outside.
+  // We handle this by giving them z-index and letting the browser render them
+  // via overflow:visible on the node. So we keep node overflow:visible (CSS)
+  // and instead clip only the inner text wrapper.
+  el.style.fontSize=Math.round(13*vs)+'px';
+  el.style.borderRadius=Math.round(13*vs)+'px';
+  el.style.padding=Math.round(12*vs)+'px '+Math.round(12*vs)+'px '+Math.round(20*vs)+'px';
+
+  // Progressive content at low zoom: name always visible but scaled down,
+  // birth/note hidden below vs=0.55 to keep the box tidy.
+  const nameEl  = el.querySelector('.nname');
+  const birthEl = el.querySelector('.nbirth');
+  const noteEl  = el.querySelector('.nnote');
+
+  // Name font always tracks node size — clamp between 6px (readable min) and 15px (natural max).
+  // This way the name always fits the box at any zoom with no hard threshold.
+  const namePx = Math.min(Math.max(Math.round(16*vs), 7), 16);
+  nameEl.style.fontSize     = namePx+'px';
+  nameEl.style.whiteSpace   = 'nowrap';
+  nameEl.style.overflow     = 'hidden';
+  nameEl.style.textOverflow = 'ellipsis';
+
+  // Birth and note only show when there is enough vertical room
+  const showSecondary = vs >= 0.55;
+  birthEl.style.display = showSecondary ? '' : 'none';
+  noteEl.style.display  = showSecondary ? '' : 'none';
+}
+
+function renderNodes(){
+  const cont=document.getElementById('nc');
+  cont.querySelectorAll('.node').forEach(el=>{
+    if(!S.nodes.find(n=>n.id==el.dataset.id)) el.remove();
+  });
+  S.nodes.forEach(n=>{
+    let el=cont.querySelector(`.node[data-id="${n.id}"]`);
+    if(!el){
+      el=document.createElement('div');
+      el.dataset.id=n.id;
+      el.innerHTML=
+        '<span class="ndel">✕</span>'+
+        '<div class="ndot"></div>'+
+        '<div class="nname"></div>'+
+        '<div class="nbirth"></div>'+
+        '<div class="nnote"></div>'+
+        '<span class="nport"></span>';
+      cont.appendChild(el);
+      wireNode(el,n.id);
+    }
+    el.className='node '+n.gender;
+    el.querySelector('.nname').textContent=n.name;
+    el.querySelector('.nbirth').textContent=n.birth?'b. '+n.birth:'';
+    el.querySelector('.nnote').textContent=n.note||'';
+    placeNode(el,n);
+  });
+}
+
+/* ═══════════════════════════ EDGES ════════════════════════ */
+function svgEl(t){return document.createElementNS('http://www.w3.org/2000/svg',t)}
+
+function renderEdges(){
+  const g=document.getElementById('lg'); g.innerHTML='';
+  // Hide relation labels when zoom is too small OR tree has 5+ generations
+  const genCount = new Set(S.nodes.map(n=>Math.round(n.y))).size;
+  const showLabels = vs >= 0.42 && genCount < 5;
+
+  S.edges.forEach(e=>{
+    const fn=S.nodes.find(n=>n.id===e.from), tn=S.nodes.find(n=>n.id===e.to);
+    if(!fn||!tn) return;
+    let x1,y1,x2,y2,d;
+
+    if(e.type==='spouse'){
+      // straight horizontal line at mid-height
+      const L=fn.x<=tn.x?fn:tn, R=fn.x<=tn.x?tn:fn;
+      x1=sx(L)+NW*vs;  y1=sy(L)+NH*vs*0.44;
+      x2=sx(R);         y2=sy(R)+NH*vs*0.44;
+      d=`M${x1},${y1} L${x2},${y2}`;
+
+    } else if(e.type==='sibling'){
+      // gentle S-curve, side-to-side at mid-height
+      const L=fn.x<=tn.x?fn:tn, R=fn.x<=tn.x?tn:fn;
+      x1=sx(L)+NW*vs;  y1=sy(L)+NH*vs*0.44;
+      x2=sx(R);          y2=sy(R)+NH*vs*0.44;
+      const cx1=x1+(x2-x1)*0.45, cx2=x1+(x2-x1)*0.55;
+      d=`M${x1},${y1} C${cx1},${y1} ${cx2},${y2} ${x2},${y2}`;
+
+    } else {
+      // SVG sits behind node divs (z-index 8 vs 10). Extend line UP into the parent node
+      // so the node div itself covers the overlap — no visible gap at any zoom level.
+      const OVL=NH*vs*0.35; // reach 35% into parent node bottom
+      x1=scx(fn); y1=sy(fn)+NH*vs-OVL;
+      x2=scx(tn); y2=sy(tn);
+      const ARR=Math.max(7,9*vs);
+      const LEAD=Math.max(6,10*vs);
+      const curveY1=y1+OVL+LEAD, arrowBase=y2-ARR, my=(curveY1+arrowBase)/2;
+      d=`M${x1},${y1} L${x1},${curveY1} C${x1},${my} ${x2},${my} ${x2},${arrowBase}`;
+    }
+
+    // label midpoint
+    let lmx,lmy,loff; // loff = perpendicular offset from line so label doesn't overlap stroke
+    if(e.type==='spouse'){
+      lmx=(x1+x2)/2; lmy=y1; loff=-11; // above the line
+    } else if(e.type==='sibling'){
+      lmx=(x1+x2)/2; lmy=(y1+y2)/2; loff=-11;
+    } else {
+      const my=(y1+y2)/2;
+      lmx=(x1+x2)/2;
+      lmy=0.125*y1+0.375*my+0.375*my+0.125*y2;
+      loff=0; // parent label goes on the curve itself (centred)
+    }
+
+    // hit area
+    const hit=svgEl('path'); hit.setAttribute('d',d); hit.setAttribute('class','rhit');
+    edgeTap(hit,e); g.appendChild(hit);
+
+    // visible line
+    const vis=svgEl('path'); vis.setAttribute('d',d); vis.setAttribute('class','rline '+e.type);
+    edgeTap(vis,e); g.appendChild(vis);
+
+    // explicit arrowhead for parent
+    if(e.type==='parent'){
+      const ARR=10*vs, hw=ARR*0.55;
+      const tipX=x2, tipY=y2, baseY=tipY-ARR;
+      const ad=`M${tipX},${tipY} L${tipX-hw},${baseY} L${tipX+hw},${baseY} Z`;
+      const arr=svgEl('path');
+      arr.setAttribute('d',ad); arr.setAttribute('fill','#4a9edd');
+      arr.setAttribute('stroke','none'); arr.setAttribute('pointer-events','none');
+      g.appendChild(arr);
+    }
+
+    // label — only when zoom is readable AND there is enough pixel space for the chip
+    // Spouse/sibling: gap between nodes must be > 70px to show label (avoids overlap with nodes)
+    // Parent: always show when zoom >= threshold (line is long enough)
+    let showThisLabel = showLabels;
+    if(showLabels && (e.type==='spouse'||e.type==='sibling')){
+      const gapPx = Math.abs(x2-x1) - NW*vs; // pixel gap between node edges
+      showThisLabel = gapPx > 70;
+    }
+    if(showThisLabel){
+      const ltext=edgeLbl(e);
+      const ly=lmy+loff;
+      // No background rect — use text stroke halo so label is readable without
+      // breaking the line visually. The stroke paints behind the fill (paint-order).
+      const lt=svgEl('text');
+      lt.setAttribute('x',lmx); lt.setAttribute('y',ly);
+      lt.setAttribute('class','elbl');
+      lt.setAttribute('stroke','#0e0c0a');
+      lt.setAttribute('stroke-width','3');
+      lt.setAttribute('paint-order','stroke');
+      lt.setAttribute('stroke-linejoin','round');
+      lt.textContent=ltext;
+      g.appendChild(lt);
+    }
+  });
+}
+
+function edgeLbl(e){
+  if(e.type==='spouse')  return 'spouse';
+  if(e.type==='sibling') return 'sibling';
+  const fn=S.nodes.find(n=>n.id===e.from);
+  return fn?.gender==='female'?'Mother':'Father';
+}
+
+let delEdgeId=null;
+function edgeTap(el,e){
+  const fn=ev=>{
+    if(CONN) return;
+    ev.stopPropagation(); ev.preventDefault();
+    const a=S.nodes.find(n=>n.id===e.from), b=S.nodes.find(n=>n.id===e.to);
+    delEdgeId=e.id;
+    document.getElementById('det-lbl').textContent=
+      'Remove: '+(a?.name||'?')+' \u2194 '+(b?.name||'?')+'?';
+    document.getElementById('detbar').classList.remove('h');
+  };
+  el.addEventListener('click',fn);
+  el.addEventListener('contextmenu',fn);
+  el.addEventListener('touchend',fn,{passive:false});
+}
+function doDelEdge(){
+  S.edges=S.edges.filter(e=>e.id!==delEdgeId);
+  hideDetBar(); renderEdges(); showSt('Relation removed');
+}
+function hideDetBar(){ delEdgeId=null; document.getElementById('detbar').classList.add('h'); }
+
+function render(){ renderNodes(); renderEdges(); }
+
+/* ═══════════════════════════ ZOOM / FIT ════════════════════ */
+
+// Compute the minimum zoom so that the widest row of nodes doesn't overlap,
+// with a relaxation factor so there's comfortable breathing room beyond just fitting.
+// RELAXATION: 0.70 means we allow the tree to use only 70% of the available width
+// at the floor zoom — nodes have 30% extra space, so they're never just barely fitting.
+function getMinZoom(){
+  if(!S.nodes.length) return 0.12;
+  // Step 1: what zoom would fitView use right now?
+  const xs=S.nodes.map(n=>n.x), ys=S.nodes.map(n=>n.y);
+  const minX=Math.min(...xs), maxX=Math.max(...xs)+NW;
+  const minY=Math.min(...ys), maxY=Math.max(...ys)+NH;
+  const legW = innerWidth > 480 ? 140 : 16;
+  const scW  = 66, pad = 40;
+  const usableW = innerWidth - scW - legW;
+  const H = innerHeight - 54;
+  const fitVS = Math.min(usableW/(maxX-minX+pad*2), H/(maxY-minY+pad*2), 1.3);
+
+  // Step 2: find widest row to know true overlap floor
+  const BUCKET = 60;
+  const rows = {};
+  S.nodes.forEach(n=>{ const k=Math.round(n.y/BUCKET); rows[k]=(rows[k]||0)+1; });
+  const maxRow = Math.max(...Object.values(rows));
+  if(maxRow <= 1) return 0.12; // single node or column — no overlap possible, use absolute min
+  const rowWidth = maxRow * NW + (maxRow-1) * 55;
+  const overlapFloor = usableW / rowWidth; // zoom at which widest row just fits
+
+  // Step 3: floor = the MORE relaxed of:
+  //   a) fitView zoom × 0.60  (allow 40% more zoom-out than fitView)
+  //   b) overlapFloor × 0.55  (allow 45% more zoom-out than overlap point)
+  // Take the smaller (more permissive) of the two, so user always has room to explore
+  const floor = Math.min(fitVS * 0.60, overlapFloor * 0.55);
+  return Math.max(0.10, floor); // absolute minimum 0.10
+}
+
+function zoomBy(f,mx,my){
+  mx=mx??innerWidth/2; my=my??((innerHeight+54)/2);
+  const minZ=getMinZoom();
+  vs=Math.max(minZ,Math.min(3.5,vs*f));
+  vx=mx-f*(mx-vx); vy=my-f*(my-vy);
+  applyView();
+}
+function fitView(){
+  if(!S.nodes.length) return;
+  const xs=S.nodes.map(n=>n.x), ys=S.nodes.map(n=>n.y);
+  const minX=Math.min(...xs), maxX=Math.max(...xs)+NW;
+  const minY=Math.min(...ys), maxY=Math.max(...ys)+NH;
+  const legW   = innerWidth > 480 ? 116 : 0;
+  const scW    = 58;
+  const pad    = 40;  // comfortable margin so nodes never touch the canvas edge
+  const usableW = innerWidth - legW - scW;
+  const canvH = innerHeight - 54;  // #cv height (nodes positioned within this)
+  vs = Math.min(usableW / (maxX - minX + pad*2),
+                canvH   / (maxY - minY + pad*2), 1.0);
+  vs = Math.max(vs, 0.05);
+  vx = legW + usableW/2 - (minX + (maxX - minX)/2) * vs;
+  // vy: nodes are inside #cv (top:54px), so no +54 offset here.
+  vy = canvH/2 - (minY + (maxY - minY)/2) * vs;
+  applyView();
+}
+
+/* ═══════════════════════════ AUTO-LAYOUT ══════════════════
+   Algorithm (v3 — ancestor fan / inverted pyramid):
+   1. Bidirectional generation relaxation: child>=parent+1, parent<=child-1,
+      spouses share same gen. Correctly handles both sides of family.
+   2. Build units: couple=[male,female] or single=[node].
+   3. Seed: youngest generation centred at x=0.
+   4. Up-pass: each older gen unit placed directly above its children.
+      NO global recentre — ancestors spread naturally into fan/pyramid shape.
+   5. Refinement passes: alternate top-down + bottom-up with overlap resolve.
+   6. Final: recentre only the youngest gen, then one top-down pass.
+   Result: inverted-pyramid/ancestor-fan — older gens spread wider naturally. */
+function autoLayout(){
+  if(!S.nodes.length) return;
+  const NW_=NW, NH_=NH; // use global constants
+  const HGAP=55, VGAP=120;
+  const PAIR_GAP=NW_+HGAP;  // 203: distance between left edges of a couple
+  const UNIT_GAP=30;         // min pixel gap between adjacent units in a row
+
+  const ch={},par={},spOf={},sibOf={};
+  S.nodes.forEach(n=>{ch[n.id]=[];par[n.id]=[];sibOf[n.id]=[];});
+  S.edges.forEach(e=>{
+    if(e.type==='parent'){ch[e.from].push(e.to);par[e.to].push(e.from);}
+    if(e.type==='spouse'){spOf[e.from]=e.to;spOf[e.to]=e.from;}
+    if(e.type==='sibling'){sibOf[e.from].push(e.to);sibOf[e.to].push(e.from);}
+  });
+
+  // ── Step 1: Bidirectional generation relaxation ──────────────────────────
+  // Downward: child >= parent+1
+  // Upward:   parent <= child-1  (fixes in-laws placed at wrong depth)
+  // Spouse:   both must share same gen (take max, re-propagate)
+  const gen={};
+  S.nodes.forEach(n=>gen[n.id]=0);
+  let changed=true;
+  for(let iter=0;iter<200&&changed;iter++){
+    changed=false;
+    S.edges.forEach(e=>{
+      if(e.type!=='parent') return;
+      if(gen[e.from]+1>gen[e.to]){gen[e.to]=gen[e.from]+1;changed=true;}
+      if(gen[e.to]-1>gen[e.from]){gen[e.from]=gen[e.to]-1;changed=true;}
+    });
+    S.nodes.forEach(n=>{
+      const sid=spOf[n.id]; if(!sid||n.id>sid) return;
+      const mx=Math.max(gen[n.id],gen[sid]);
+      if(gen[n.id]!==mx||gen[sid]!==mx){gen[n.id]=mx;gen[sid]=mx;changed=true;}
+    });
+  }
+
+  // Sibling propagation: siblings share the same (max) generation
+  for(let p=0;p<8;p++) S.nodes.forEach(n=>{
+    sibOf[n.id].forEach(sid=>{
+      const mx=Math.max(gen[n.id],gen[sid]);
+      if(gen[n.id]!==mx||gen[sid]!==mx){gen[n.id]=mx;gen[sid]=mx;}
+    });
+  });
+
+  // Set Y
+  // Shrink vertical gap for deeper trees: -6px per gen beyond 3, min 80px
+  const maxGen2=Math.max(0,...Object.values(gen));
+  const VGAP2=Math.max(80, 120-Math.max(0,maxGen2-3)*6);
+  S.nodes.forEach(n=>n.y=gen[n.id]*(NH_+VGAP2));
+
+  // ── Step 2: Group by generation, build units ─────────────────────────────
+  const byG={};
+  S.nodes.forEach(n=>{const g=gen[n.id];(byG[g]||(byG[g]=[])).push(n);});
+  const gens=Object.keys(byG).map(Number).sort((a,b)=>a-b);
+  const maxG=gens[gens.length-1];
+  const nodeMap={};
+  S.nodes.forEach(n=>nodeMap[n.id]=n);
+
+  // A unit is {nodes:[m,f], isPair:true} or {nodes:[n], isPair:false}
+  function buildUnits(g){
+    const row=byG[g]||[],placed=new Set(),units=[];
+    row.forEach(n=>{
+      if(placed.has(n.id)) return;
+      const sid=spOf[n.id],sp=sid?nodeMap[sid]:null;
+      if(sp&&!placed.has(sp.id)&&gen[sp.id]===g){
+        const m=n.gender==='male'?n:sp,f=n.gender==='female'?n:sp;
+        units.push({nodes:[m,f],isPair:true}); placed.add(m.id); placed.add(f.id);
+      } else {
+        units.push({nodes:[n],isPair:false}); placed.add(n.id);
+      }
+    });
+    // Sort by stable child-order key if available (set after up-pass),
+    // otherwise fall back to live unitKidsCX. This prevents refinement passes
+    // from re-sorting and reintroducing line crossings.
+    units.sort((a,b)=>{
+      const aKey=a.nodes.map(n=>stableKidOrder[n.id]??null).find(v=>v!==null);
+      const bKey=b.nodes.map(n=>stableKidOrder[n.id]??null).find(v=>v!==null);
+      const ax=aKey!==null?aKey:unitKidsCX(a);
+      const bx=bKey!==null?bKey:unitKidsCX(b);
+      if(ax===null&&bx===null) return 0;
+      if(ax===null) return 1;
+      if(bx===null) return -1;
+      return ax-bx;
+    });
+    return units;
+  }
+
+  // Unit geometry helpers
+  const unitW=u=>u.isPair?PAIR_GAP+NW_:NW_;
+  const getULeft=u=>u.nodes[0].x;
+  const getURight=u=>u.nodes[u.nodes.length-1].x+NW_;
+  const getUCX=u=>(getULeft(u)+getURight(u))/2;
+  function setULeft(u,lx){u.nodes[0].x=lx;if(u.isPair)u.nodes[1].x=lx+PAIR_GAP;}
+  function setUCX(u,cx){setULeft(u,cx-unitW(u)/2);}
+
+  function unitKidsCX(u){
+    const kids=[];
+    u.nodes.forEach(n=>ch[n.id].forEach(id=>{const k=nodeMap[id];if(k)kids.push(k);}));
+    if(!kids.length) return null;
+    return kids.reduce((s,k)=>s+k.x+NW_/2,0)/kids.length;
+  }
+  function unitParsCX(u){
+    const ps=[];
+    u.nodes.forEach(n=>par[n.id].forEach(id=>{const p=nodeMap[id];if(p)ps.push(p);}));
+    if(!ps.length) return null;
+    return ps.reduce((s,p)=>s+p.x+NW_/2,0)/ps.length;
+  }
+
+  // Resolve overlaps bidirectionally (operates on units as rigid blocks)
+  function resolveOverlaps(units){
+    if(units.length<2) return;
+    units.sort((a,b)=>getULeft(a)-getULeft(b));
+    for(let i=1;i<units.length;i++){
+      if(getULeft(units[i])<getURight(units[i-1])+UNIT_GAP)
+        setULeft(units[i],getURight(units[i-1])+UNIT_GAP);
+    }
+    for(let i=units.length-2;i>=0;i--){
+      if(getURight(units[i])>getULeft(units[i+1])-UNIT_GAP)
+        setULeft(units[i],getULeft(units[i+1])-unitW(units[i])-UNIT_GAP);
+    }
+  }
+
+  function recentreRow(units){
+    if(!units.length) return;
+    const mid=(Math.min(...units.map(getULeft))+Math.max(...units.map(getURight)))/2;
+    units.forEach(u=>setULeft(u,getULeft(u)-mid));
+  }
+
+  // Stable sort key: after up-pass, records each node's child-order position
+  // so refinement passes don't re-sort and reintroduce line crossings.
+  const stableKidOrder={};
+
+  // ── Step 3: Seed — place youngest generation ─────────────────────────────
+  const yUnits=buildUnits(maxG);
+  let cur=-(yUnits.reduce((s,u)=>s+unitW(u),0)+(yUnits.length-1)*UNIT_GAP)/2;
+  yUnits.forEach(u=>{setULeft(u,cur);cur+=unitW(u)+UNIT_GAP;});
+
+  // ── Step 4: Up-pass — place each older gen anchored above its children ────
+  // NO recentreRow — ancestors spread naturally into inverted-pyramid shape.
+  // Each parent pair sits directly above its children; the row widens as
+  // you go back in time (more great-grandparents = wider top row). This
+  // matches the classical ancestor-chart / pedigree chart layout.
+  for(let g=maxG-1;g>=0;g--){
+    const units=buildUnits(g);
+    const withKids=units.filter(u=>unitKidsCX(u)!==null);
+    const noKids=units.filter(u=>unitKidsCX(u)===null);
+    withKids.forEach(u=>setUCX(u,unitKidsCX(u)));
+    if(noKids.length){
+      // Orphan units: place to the right of the family cluster
+      const rightEdge=withKids.length
+        ?Math.max(...withKids.map(getURight))
+        : -(noKids.reduce((s,u)=>s+unitW(u),0)+(noKids.length-1)*UNIT_GAP)/2;
+      let rx=rightEdge+UNIT_GAP;
+      noKids.forEach(u=>{setULeft(u,rx);rx+=unitW(u)+UNIT_GAP;});
+    }
+    resolveOverlaps(units);
+    // ← NO recentreRow here; let natural spread happen
+  }
+
+  // Lock stable child-order keys now that youngest gen + up-pass have settled.
+  // Each node in a parent row gets the average X of its children as a stable key.
+  // Refinement passes will use this key instead of live positions, so order never flips.
+  S.nodes.forEach(n=>{
+    const kids=ch[n.id].map(id=>nodeMap[id]).filter(Boolean);
+    if(kids.length) stableKidOrder[n.id]=kids.reduce((s,k)=>s+k.x+NW_/2,0)/kids.length;
+  });
+
+  // ── Step 5: Refinement — alternate top-down + bottom-up, 4 passes ────────
+  for(let pass=0;pass<4;pass++){
+    // Top-down: nudge children under their parents
+    for(let g=1;g<=maxG;g++){
+      const units=buildUnits(g);
+      units.forEach(u=>{const p=unitParsCX(u);if(p!==null)setUCX(u,p);});
+      resolveOverlaps(units);
+    }
+    // Bottom-up: nudge parents over their children (natural pyramid spread)
+    for(let g=maxG-1;g>=0;g--){
+      const units=buildUnits(g);
+      units.forEach(u=>{const k=unitKidsCX(u);if(k!==null)setUCX(u,k);});
+      resolveOverlaps(units);
+    }
+  }
+
+  // ── Step 6: Recentre only the YOUNGEST generation (the focus person) ────────
+  // Ancestor rows are intentionally NOT recentred — they spread naturally into
+  // the inverted-pyramid / ancestor-fan shape (wider as you go back in time).
+  // This matches how real genealogy charts look: oldest generation spans widest.
+  recentreRow(buildUnits(maxG));
+  // One final top-down pass so children stay aligned under the recentred youngest gen
+  for(let g=1;g<=maxG;g++){
+    const units=buildUnits(g);
+    units.forEach(u=>{const p=unitParsCX(u);if(p!==null)setUCX(u,p);});
+    resolveOverlaps(units);
+  }
+
+  render();
+  // Re-centre pan at current zoom — keeps zoom level, just centres the tree.
+  {
+    const xs2=S.nodes.map(n=>n.x),ys2=S.nodes.map(n=>n.y);
+    const minX2=Math.min(...xs2),maxX2=Math.max(...xs2)+NW;
+    const minY2=Math.min(...ys2),maxY2=Math.max(...ys2)+NH;
+    const legW2=innerWidth>480?116:0;
+    const usableW2=innerWidth-legW2-58;
+    const canvH2=innerHeight-54;
+    vx=legW2+usableW2/2-(minX2+(maxX2-minX2)/2)*vs;
+    vy=canvH2/2-(minY2+(maxY2-minY2)/2)*vs;
+    applyView();
+  }
+  showSt('Tree arranged ✓');
+}
+
+/* ═══════════════════════════ CLEAR ALL ════════════════════ */
+function askClear(){
+  if(!S.nodes.length&&!S.edges.length){showSt('Canvas is already empty');return;}
+  customConfirm('Clear Tree',
+    'Remove all people, connections and reset the tree name? This cannot be undone.',
+    yes=>{
+      if(!yes) return;
+      S.nodes=[];S.edges=[];S.nid=1;S.title='Family Tree';
+      document.getElementById('nc').innerHTML='';
+      renderEdges();
+      syncTitle();
+      showSt('Tree cleared');
+    });
+}
+
+/* ═══════════════════════════ DRAG/PAN/PINCH STATE ══════════ */
+let DID=null,DOX=0,DOY=0;
+let PAN=false,PSX=0,PSY=0,POX=0,POY=0;
+let PIN=null,PVS=1,PVX=0,PVY=0;
+let CONN=false,CSRC=null,PF=null,PT=null,selR='parent';
+let EID=null,selG='male';
+
+/* ═══════════════════════════ BOOT ══════════════════════════ */
+window.addEventListener('load',()=>{
+  if(EMBEDDED_DATA) sanitise(EMBEDDED_DATA);
+  syncTitle(); render(); setupGlobalEvents();
+  if(S.nodes.length) fitView();
+});
+
+/* ═══════════════════════════ GLOBAL EVENTS ═════════════════ */
+function setupGlobalEvents(){
+  const cv=document.getElementById('cv');
+
+  // mouse pan
+  cv.addEventListener('mousedown',e=>{
+    if(e.target.closest('.node')) return;
+    PAN=true;PSX=e.clientX;PSY=e.clientY;POX=vx;POY=vy;
+    cv.style.cursor='grabbing';
+  });
+  window.addEventListener('mousemove',e=>{
+    if(PAN){vx=POX+(e.clientX-PSX);vy=POY+(e.clientY-PSY);applyView();}
+    if(DID!==null) doDrag(e.clientX,e.clientY);
+    if(CONN) moveTmp(e.clientX,e.clientY);
+  });
+  window.addEventListener('mouseup',()=>{PAN=false;cv.style.cursor='';DID=null;});
+
+  // wheel
+  cv.addEventListener('wheel',e=>{
+    e.preventDefault();
+    zoomBy(e.deltaY<0?1.09:.92,e.clientX,e.clientY);
+  },{passive:false});
+
+  // touch pan + pinch (on cv, not nodes)
+  cv.addEventListener('touchstart',e=>{
+    if(e.target.closest('.node')) return;
+    if(e.touches.length===2){
+      PAN=false;DID=null;
+      PIN=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                     e.touches[0].clientY-e.touches[1].clientY);
+      PVS=vs;PVX=vx;PVY=vy; return;
+    }
+    const t=e.touches[0];
+    if(DID!==null) return;
+    PAN=true;PSX=t.clientX;PSY=t.clientY;POX=vx;POY=vy;
+  },{passive:true});
+
+  cv.addEventListener('touchmove',e=>{
+    if(e.touches.length===2&&PIN!==null){
+      e.preventDefault();
+      const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,
+                         e.touches[0].clientY-e.touches[1].clientY);
+      const f=d/PIN;
+      const mx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+      const my=(e.touches[0].clientY+e.touches[1].clientY)/2;
+      vs=Math.max(getMinZoom(),Math.min(3.5,PVS*f));
+      vx=mx-f*(mx-PVX); vy=my-f*(my-PVY);
+      applyView(); return;
+    }
+    if(PAN&&e.touches.length===1&&DID===null){
+      vx=POX+(e.touches[0].clientX-PSX);
+      vy=POY+(e.touches[0].clientY-PSY);
+      applyView();
+    }
+    if(CONN&&e.touches.length===1) moveTmp(e.touches[0].clientX,e.touches[0].clientY);
+  },{passive:false});
+
+  cv.addEventListener('touchend',e=>{
+    if(e.touches.length<2) PIN=null;
+    if(!e.touches.length) PAN=false;
+  },{passive:true});
+
+  cv.addEventListener('click',()=>hideDetBar());
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){cancelConn();closeM('pm');closeM('rm');cfAns(false);}
+    if((e.key==='n'||e.key==='N')&&!e.target.matches('input,textarea')) openAdd();
+  });
+}
+
+/* ═══════════════════════════ NODE WIRING ══════════════════
+   Using Pointer Events API — works identically on mouse and touch.
+   The ✕ button uses its own pointer events with stopPropagation.   */
+function wireNode(el,id){
+  const del =el.querySelector('.ndel');
+  const port=el.querySelector('.nport');
+
+  // ── ✕ DELETE ──
+  // pointerdown: capture and prevent node drag from starting
+  del.addEventListener('pointerdown',e=>{e.stopPropagation();e.preventDefault();});
+  // pointerup: fire the actual delete
+  del.addEventListener('pointerup',e=>{
+    e.stopPropagation();e.preventDefault();
+    askDeleteNode(id);
+  });
+
+  // ── PORT ──
+  port.addEventListener('pointerdown',e=>{
+    e.stopPropagation();e.preventDefault();
+    startConn(id);
+  });
+
+  // ── DRAG + TAP (node body) ──
+  let ptStart={x:0,y:0};
+  let longPressTimer=null;
+
+  function cancelLongPress(){ clearTimeout(longPressTimer); longPressTimer=null; }
+
+  el.addEventListener('pointerdown',e=>{
+    if(e.target===del||del.contains(e.target)) return;
+    if(e.target===port||port.contains(e.target)) return;
+    ptStart={x:e.clientX,y:e.clientY};
+    e.stopPropagation();
+    if(CONN) return;
+    DID=id;
+    const n=S.nodes.find(x=>x.id===id);
+    DOX=(e.clientX-vx)/vs-n.x;
+    DOY=(e.clientY-vy)/vs-n.y;
+    el.setPointerCapture(e.pointerId);
+
+    // Long-press: hold 480ms without moving → enter connection mode (for mobile)
+    longPressTimer=setTimeout(()=>{
+      longPressTimer=null;
+      const moved=Math.hypot(e.clientX-ptStart.x,e.clientY-ptStart.y);
+      if(moved>8) return;
+      DID=null; // cancel drag
+      // Pulse ring feedback
+      el.classList.add('lpulse');
+      setTimeout(()=>el.classList.remove('lpulse'),420);
+      if(navigator.vibrate) navigator.vibrate(30);
+      startConn(id);
+    },480);
+  });
+
+  el.addEventListener('pointermove',e=>{
+    if(DID===id){
+      const moved=Math.hypot(e.clientX-ptStart.x,e.clientY-ptStart.y);
+      if(moved>6) cancelLongPress();
+      e.stopPropagation();
+      doDrag(e.clientX,e.clientY);
+    }
+    if(CONN) moveTmp(e.clientX,e.clientY);
+  });
+
+  el.addEventListener('pointerup',e=>{
+    cancelLongPress();
+    if(e.target===del||del.contains(e.target)) return;
+    if(e.target===port||port.contains(e.target)) return;
+    e.stopPropagation();
+    const dist=Math.hypot(e.clientX-ptStart.x,e.clientY-ptStart.y);
+    const wasDrag=(DID===id);
+    if(DID===id) DID=null;
+    if(dist>9) return;
+    if(wasDrag&&dist>4) return;
+    if(CONN){
+      if(id!==CSRC){PT=id;openRelModal();}
+    } else {
+      openEdit(id);
+    }
+  });
+
+  el.addEventListener('pointercancel',()=>{ cancelLongPress(); });
+
+  // Touch drag on node (for browsers that don't support pointer events well)
+  el.addEventListener('touchmove',e=>{
+    if(DID===id&&e.touches.length===1){
+      e.stopPropagation();
+      doDrag(e.touches[0].clientX,e.touches[0].clientY);
+    }
+  },{passive:true});
+}
+
+function doDrag(mx,my){
+  const n=S.nodes.find(x=>x.id===DID); if(!n) return;
+  n.x=(mx-vx)/vs-DOX; n.y=(my-vy)/vs-DOY;
+  const el=document.querySelector(`.node[data-id="${DID}"]`);
+  if(el) placeNode(el,n);
+  renderEdges();
+}
+
+/* ═══════════════════════════ DELETE NODE ══════════════════ */
+function askDeleteNode(id){
+  const n=S.nodes.find(x=>x.id===id);
+  customConfirm('Remove Person',
+    'Remove "'+(n?.name||'this person')+'" from the tree?',
+    yes=>{
+      if(!yes) return;
+      S.nodes=S.nodes.filter(x=>x.id!==id);
+      S.edges=S.edges.filter(e=>e.from!==id&&e.to!==id);
+      document.querySelector(`.node[data-id="${id}"]`)?.remove();
+      renderEdges(); showSt('Person removed');
+    });
+}
+
+/* ═══════════════════════════ CONNECTION ═══════════════════ */
+function startConn(id){
+  CONN=true;CSRC=id;PF=id;PT=null;
+  document.querySelectorAll('.node').forEach(el=>{
+    el.classList.remove('csrc','ctgt');
+    if(+el.dataset.id!==id) el.classList.add('ctgt');
+  });
+  document.querySelector(`.node[data-id="${id}"]`)?.classList.add('csrc');
+  document.body.classList.add('conn-mode');
+  // Clear stale path first, then make visible — so nothing renders until mouse moves
+  const tl=document.getElementById('tl');
+  tl.setAttribute('d','');
+  tl.setAttribute('visibility','visible');
+  showHint('Tap any person to connect \u2014 Esc or tap elsewhere to cancel');
+  const n=S.nodes.find(x=>x.id===id);
+  window._cs={x:scx(n),y:sy(n)+NH*vs};
+}
+function moveTmp(cx,cy){
+  const s=window._cs; if(!s) return;
+  // Convert client coords to SVG coords (SVG sits inside #cv which starts at top:54px)
+  const svg=document.getElementById('ln');
+  const r=svg.getBoundingClientRect();
+  const mx=cx-r.left, my=cy-r.top;
+  const mid=(s.y+my)/2;
+  document.getElementById('tl').setAttribute('d',
+    `M${s.x},${s.y} C${s.x},${mid} ${mx},${mid} ${mx},${my}`);
+}
+function cancelConn(){
+  CONN=false;CSRC=null;
+  document.getElementById('tl').setAttribute('visibility','hidden');
+  document.querySelectorAll('.node').forEach(el=>el.classList.remove('csrc','ctgt'));
+  document.body.classList.remove('conn-mode');
+  hideHint(); closeM('rm');
+}
+function openRelModal(){
+  document.getElementById('tl').setAttribute('visibility','hidden');
+  const fn=S.nodes.find(n=>n.id===PF),tn=S.nodes.find(n=>n.id===PT);
+  if(!fn||!tn){cancelConn();return;}
+  document.getElementById('ro-plbl').textContent=
+    (fn.gender==='female'?'Mother':'Father')+' \u2192 Child';
+  document.getElementById('rm-s').textContent=fn.name+' \u2192 '+tn.name;
+  selR='parent';
+  document.querySelectorAll('.ro').forEach(o=>o.classList.remove('sel'));
+  document.querySelector('.ro[data-t="parent"]').classList.add('sel');
+  document.getElementById('rm-err').style.display='none';
+  openM('rm'); hideHint();
+}
+function pickR(el){
+  document.querySelectorAll('.ro').forEach(o=>o.classList.remove('sel'));
+  el.classList.add('sel'); selR=el.dataset.t;
+  document.getElementById('rm-err').style.display='none';
+}
+function confirmConn(){
+  if(!PF||!PT) return;
+  let from=PF,to=PT;
+  // Hide any previous error
+  const rmErr=document.getElementById('rm-err');
+  rmErr.style.display='none';
+  if(selR==='spouse'){
+    const fn=S.nodes.find(n=>n.id===from),tn=S.nodes.find(n=>n.id===to);
+    if(fn&&tn&&fn.gender===tn.gender){
+      const who=fn.gender==='male'?'Both are male':'Both are female';
+      rmErr.textContent=who+' — spouse must be Partners.';
+      rmErr.style.display='block';
+      return;
+    }
+    if(fn?.gender==='female'&&tn?.gender==='male')[from,to]=[to,from];
+    const mn=S.nodes.find(n=>n.id===from),fm=S.nodes.find(n=>n.id===to);
+    if(mn&&fm){
+      // Only enforce X separation — never touch Y (that is autoLayout's job).
+      // Averaging Y here caused the "straight line" visual when connecting
+      // grandparents who were placed at different vertical positions.
+      if(mn.x>fm.x){const t=mn.x;mn.x=fm.x;fm.x=t;}
+      if(fm.x-mn.x<NW+55) fm.x=mn.x+NW+55;
+    }
+  }
+  const dup=S.edges.find(e=>
+    (e.from===from&&e.to===to)||(e.from===to&&e.to===from&&e.type!=='parent'));
+  if(!dup) S.edges.push({id:S.nid++,from,to,type:selR});
+  cancelConn(); render(); showSt('Relation added \u2713');
+}
+
+/* ═══════════════════════════ PERSON CRUD ══════════════════ */
+function openAdd(){
+  EID=null;selG='male';
+  document.getElementById('pm-h').textContent='Add Person';
+  document.getElementById('pm-s').textContent='Name and gender are required';
+  document.getElementById('ps-btn').textContent='Add';
+  ['pn','pb','pno'].forEach(id=>document.getElementById(id).value='');
+  clearErrs();updateGUI();openM('pm');
+  setTimeout(()=>document.getElementById('pn').focus(),80);
+}
+function openEdit(id){
+  const n=S.nodes.find(x=>x.id===id); if(!n) return;
+  EID=id;selG=n.gender;
+  document.getElementById('pm-h').textContent='Edit Person';
+  document.getElementById('pm-s').textContent='Update details';
+  document.getElementById('ps-btn').textContent='Save';
+  document.getElementById('pn').value=n.name;
+  document.getElementById('pb').value=n.birth||'';
+  document.getElementById('pno').value=n.note||'';
+  clearErrs();updateGUI();openM('pm');
+}
+function setG(g){selG=g;updateGUI();}
+function updateGUI(){
+  document.getElementById('gm').className='go'+(selG==='male'?' gm':'');
+  document.getElementById('gf').className='go'+(selG==='female'?' gf':'');
+}
+function clearErrs(){
+  ['pn','pb'].forEach(fid=>{
+    document.getElementById(fid).classList.remove('err');
+    const e=document.getElementById(fid+'-e');
+    e.className='ferr';e.textContent='';
+  });
+}
+function showErr(fid,msg){
+  document.getElementById(fid).classList.add('err');
+  const e=document.getElementById(fid+'-e');
+  e.textContent=msg;e.className='ferr v';
+}
+function savePerson(){
+  clearErrs();
+  const name=document.getElementById('pn').value.trim();
+  const birth=document.getElementById('pb').value.trim();
+  const note=document.getElementById('pno').value.trim();
+  let ok=true;
+  if(!name){showErr('pn','Name is required');ok=false;}
+  else if(/\d/.test(name)){showErr('pn','Name cannot contain numbers');ok=false;}
+  if(birth){
+    if(!/^\d{1,4}$/.test(birth)){showErr('pb','Enter a 4-digit year');ok=false;}
+    else if(+birth<1||+birth>2100){showErr('pb','Year must be 1–2100');ok=false;}
+  }
+  if(!ok) return;
+  const sN=name.slice(0,80).replace(/[<>"]/g,'');
+  const sB=birth.slice(0,4);
+  const sO=note.slice(0,400).replace(/[<>"]/g,'');
+  if(EID){
+    const n=S.nodes.find(x=>x.id===EID);
+    Object.assign(n,{name:sN,gender:selG,birth:sB,note:sO});
+  } else {
+    // Place new node in a free spot — not overlapping existing nodes or legend
+    const PAD = 20;
+    // Base position: centre of usable area (excluding legend on left, controls on right)
+    const legWp = innerWidth > 480 ? 140 : 16;
+    const scWp  = 66;
+    const usableCX = legWp + (innerWidth - scWp - legWp) / 2;
+    const baseX = (usableCX - vx)/vs - NW/2;
+    const baseY = ((innerHeight-54)/2 - vy)/vs - NH/2;
+
+    // Try positions in a spiral/grid until one is free AND not behind legend
+    let px=baseX, py=baseY;
+    const step = NW + PAD;
+    outer: for(let ring=0; ring<=12; ring++){
+      const candidates = ring===0 ? [[baseX,baseY]] : [];
+      if(ring>0){
+        for(let i=-ring;i<=ring;i++) candidates.push([baseX+i*step, baseY-ring*step]);
+        for(let i=-ring;i<=ring;i++) candidates.push([baseX+i*step, baseY+ring*step]);
+        for(let i=-(ring-1);i<=(ring-1);i++) candidates.push([baseX-ring*step, baseY+i*step]);
+        for(let i=-(ring-1);i<=(ring-1);i++) candidates.push([baseX+ring*step, baseY+i*step]);
+      }
+      for(const [cx,cy] of candidates){
+        // Check not behind legend: screen left edge of node must be > legWp
+        const screenLeft = cx*vs + vx;
+        if(screenLeft < legWp) continue;
+        const overlaps = S.nodes.some(n=>
+          Math.abs(n.x-cx)<NW+PAD && Math.abs(n.y-cy)<NH+PAD
+        );
+        if(!overlaps){ px=cx; py=cy; break outer; }
+      }
+    }
+    S.nodes.push({id:S.nid++,name:sN,gender:selG,birth:sB,note:sO,x:px,y:py});
+  }
+  closeM('pm'); render();
+  // If new node was placed outside current viewport, fit view to show everything
+  if(!EID){
+    const n=S.nodes[S.nodes.length-1];
+    const screenX=n.x*vs+vx, screenY=n.y*vs+vy;
+    const offscreen = screenX<0||screenX>innerWidth-66||screenY<54||screenY>innerHeight;
+    if(offscreen) fitView();
+  }
+  showSt(EID?'Saved \u2713':sN+' added \u2713');
+  if(!EID && 'ontouchstart' in window && !localStorage.getItem('lp_hint')){
+    try{localStorage.setItem('lp_hint','1');}catch(e){}
+    setTimeout(()=>showHint('Tip: long-press a node to add a connection \uD83D\uDCAF'),600);
+  }
+}
+
+/* ═══════════════════════════ TITLE ════════════════════════ */
+function syncTitle(){
+  const t=S.title||'Family Tree';
+  document.getElementById('tt').textContent=t;document.title=t;
+}
+function titleClick(){
+  if(document.getElementById('ti').style.display==='block') return;
+  document.getElementById('tt').style.display='none';
+  document.getElementById('th').style.display='none';
+  const inp=document.getElementById('ti');
+  inp.style.display='block';inp.value=S.title;inp.focus();inp.select();
+}
+function commitTitle(){
+  const v=document.getElementById('ti').value.trim().slice(0,120).replace(/[<>"]/g,'');
+  if(v) S.title=v;
+  document.getElementById('ti').style.display='none';
+  document.getElementById('tt').style.display='';
+  document.getElementById('th').style.display='';
+  syncTitle();
+}
+
+/* ═══════════════════════════ SAVE ══════════════════════════ */
+function saveFile(){
+  try{
+    const data={
+      title:S.title,nid:S.nid,
+      nodes:S.nodes.map(n=>({id:n.id,name:n.name,gender:n.gender,birth:n.birth,note:n.note,x:Math.round(n.x),y:Math.round(n.y)})),
+      edges:S.edges.map(e=>({id:e.id,from:e.from,to:e.to,type:e.type}))
+    };
+    const json=JSON.stringify(data);
+    // Clear the live node DOM before capturing outerHTML so the saved file
+    // has an empty #nc — nodes are always rebuilt from EMBEDDED_DATA on load.
+    // Without this, saved node divs have no event listeners when reopened.
+    const nc=document.getElementById('nc');
+    const ncHTML=nc.innerHTML;
+    nc.innerHTML='';
+    const src=document.documentElement.outerHTML;
+    nc.innerHTML=ncHTML; // restore immediately so current session is unaffected
+    const mark='const EMBEDDED_DATA = null; // __DATA__';
+    const repl='const EMBEDDED_DATA = '+json+'; // __DATA__';
+    const out=src.includes(mark)
+      ?src.replace(mark,repl)
+      :src.replace(/const EMBEDDED_DATA = (\{[\s\S]*?\}|null); \/\/ __DATA__/,repl);
+    const blob=new Blob([out],{type:'text/html;charset=utf-8'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=(S.title||'family-tree').replace(/[^a-z0-9]/gi,'-').toLowerCase()+'.html';
+    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url),2000);
+    showSt('Saved \u2713  \u2014  share the file with anyone');
+  }catch(err){showSt('Save failed: '+err.message);}
+}
+
+/* ═══════════════════════════ HELPERS ══════════════════════ */
+function openM(id){document.getElementById(id).classList.remove('h');}
+function closeM(id){document.getElementById(id).classList.add('h');}
+function showSt(m){
+  const el=document.getElementById('stbar');
+  el.textContent=m;el.classList.remove('h');
+  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.add('h'),3400);
+}
+function showHint(m){const e=document.getElementById('hb');e.textContent=m;e.classList.remove('h');}
+function hideHint(){document.getElementById('hb').classList.add('h');}
+
+/* ═══════════════════════════ CAPTURE ══════════════════════
+   Quality strategy:
+   - autoLayout to arrange, then full fitView (no zoom cap) to fit entire tree
+   - Render at 4× pixel density → ~4K image, fully readable at max zoom
+   - PNG opens in all desktop/phone gallery apps natively               */
+function captureTree(){
+  if(!S.nodes.length){showSt('Nothing to capture yet');return;}
+  const btn=document.getElementById('capbtn');
+  btn.innerHTML='<span style="font-size:14px;line-height:1;position:relative;top:-1px">⏳</span><span class="cap-lbl"> Capturing…</span>';
+  btn.disabled=true;
+
+  function restoreBtn(){
+    btn.innerHTML='<span style="font-size:14px;line-height:1;position:relative;top:-1px">📸</span><span class="cap-lbl"> Capture</span>';
+    btn.disabled=false;
+  }
+
+  function doCapture(){
+    autoLayout();
+    fitView();
+    setTimeout(()=>{
+      // Hide all chrome except legend — legend stays visible in the capture
+      const hide=['tb','sc','stbar','hb','detbar','cfdlg'];
+      const els=hide.map(id=>document.getElementById(id));
+      els.forEach(e=>{if(e)e.style.visibility='hidden';});
+
+      // Expand #cv to full screen (removes the 54px topbar gap) and shift vy to match
+      const cv=document.getElementById('cv');
+      const origTop=cv.style.top; cv.style.top='0';
+      const origVY=vy; vy+=54; applyView();
+
+      const titleEl=document.createElement('div');
+      titleEl.style.cssText=`position:absolute;top:22px;left:50%;transform:translateX(-50%);
+        font-family:'Cormorant Garamond',serif;font-size:30px;font-weight:300;
+        letter-spacing:.12em;color:#e8c97a;
+        text-shadow:0 2px 18px rgba(0,0,0,.95);
+        white-space:nowrap;pointer-events:none;z-index:999;`;
+      titleEl.textContent=S.title||'Family Tree';
+      cv.appendChild(titleEl);
+
+      // Clone legend into #cv so html2canvas captures it (legend is fixed outside #cv normally)
+      const origLeg=document.getElementById('leg');
+      const legClone=origLeg.cloneNode(true);
+      legClone.style.cssText='position:absolute;bottom:14px;left:13px;z-index:999;';
+      cv.appendChild(legClone);
+
+      function restore(){
+        try{cv.removeChild(titleEl);}catch(x){}
+        try{cv.removeChild(legClone);}catch(x){}
+        vy=origVY; cv.style.top=origTop;
+        els.forEach(e=>{if(e)e.style.visibility='';});
+        fitView(); restoreBtn();
+      }
+
+      window.html2canvas(cv,{
+        backgroundColor:'#0e0c0a',
+        scale:6,
+        useCORS:true,
+        logging:false,
+        width:innerWidth,
+        height:innerHeight,
+      }).then(canvas=>{
+        restore();
+        const fname=(S.title||'family-tree').replace(/[^a-z0-9\s]/gi,'').trim()
+          .replace(/\s+/g,'-').toLowerCase()||'family-tree';
+        canvas.toBlob(blob=>{
+          const url=URL.createObjectURL(blob);
+          const a=document.createElement('a');
+          a.href=url; a.download=fname+'.png';
+          document.body.appendChild(a); a.click(); document.body.removeChild(a);
+          setTimeout(()=>URL.revokeObjectURL(url),3000);
+          showSt('High-quality PNG saved \u2013 '+fname+'.png \u2713');
+        },'image/png');
+      }).catch(err=>{
+        restore();
+        showSt('Capture failed: '+err.message);
+      });
+    },420);
+  }
+
+  if(window.html2canvas){
+    doCapture();
+  } else {
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload=doCapture;
+    s.onerror=()=>{ restoreBtn(); showSt('Could not load capture library'); };
+    document.head.appendChild(s);
+  }
+}
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" async></script>
+</body>
+</html>
