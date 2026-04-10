@@ -93,7 +93,7 @@ The auto-arrange uses a custom hierarchical layout:
 1. **Generation assignment** via bidirectional relaxation — children go below parents, parents get pulled up if they're too far below their children, spouses share the same generation
 2. **Unit grouping** — couples always move as rigid pairs (male left, female right)
 3. **Cross-free ordering** — child units are sorted by their parents' X positions so lines from different parent couples never cross
-4. **Inverted pyramid** — ancestors fan outward naturally, youngest generation is the anchor
+4. **Inverted pyramid** — ancestors fan outward naturally, the youngest generation is the anchor
 5. **Dynamic vertical gaps** — tighter spacing on deeper trees (120px shrinking to 80px)
 6. **4-pass refinement** — alternating top-down and bottom-up overlap resolution
 
@@ -103,7 +103,6 @@ The auto-arrange uses a custom hierarchical layout:
 
 - Undo/redo not implemented
 - No GEDCOM import/export
-- Gender is binary (male/female only)
 - Practical node limit ~300 before layout slows
 - PNG capture requires html2canvas CDN (needs internet on first capture)
 
